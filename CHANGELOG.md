@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Added **Sort by Profit with Master Chef** to the Filter menu and settings. It sorts within categories
+  by estimated Cooking profit using the selected auction/vendor basis, as an alternative to regular profit sorting.
+- Fixed Master Chef estimates missing from Cooking recipe rows on clients using the current
+  profession-info API. Cooking detection now supports both current and legacy APIs, including parent skill lines.
+- Added a manual **Master Chef rank (Cooking)** setting (0–5). Cooking rows and the profit panel now
+  show expected net profit in parentheses, accounting for a 10% chance per rank of one extra item.
+  Vendor estimates use the item's vendor sell price; auction estimates deduct the AH cut.
+- Added **Profitable with Master Chef** to the Filter menu and options as an alternative to
+  **Profitable only**. Rank 0 hides the estimate and uses regular profit for filtering.
+
 ## 0.5.3
 
 - Fixed: **Sold per day** was blank when the price source was Auctionator (for example on "auto" with

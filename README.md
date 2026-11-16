@@ -43,6 +43,18 @@ can skip the scan. Pick a specific source in the options or with `/cf source`.
 - **Craft reagents I can make**: reagents you have a recipe for (Bolt of Woolen Cloth, for example) are
   priced at their own craft cost when that is cheaper than buying. This also works through chains, for
   example ore → bar → tube → finished item. Open each profession once so its recipes are known.
+- **Master Chef (Cooking)**: set your Legacy Talent rank manually under **Options > AddOns > CraftProfit >
+  Master Chef rank (Cooking)**, from 0/5 to 5/5. Cooking profit tags and the profit panel show estimated
+  profit in parentheses after regular profit. Each point adds a 10% chance of **one extra item**, regardless
+  of the recipe's normal output. At 5/5, Jungle Stew (two items vendoring for 3s each) gains an expected
+  1s50c per craft, so 86c regular profit becomes **86c (2s36c)**. Auction estimates also deduct the AH cut
+  from the extra item's value. Rank 0 hides the estimate.
+- **Profitable with Master Chef**: select this in the profession window's Filter menu or the options to
+  filter by estimated profit. It replaces **Profitable only**, so Cooking recipes that become profitable
+  with procs are included. At rank 0 and for other professions it uses regular profit.
+- **Sort by Profit with Master Chef**: select this in the Filter menu or options to sort recipes within
+  each category by estimated profit, highest first. It replaces **Sort by profit** and uses the selected
+  auction/vendor basis. Rank 0 and other professions use regular profit; missing prices sort last.
 - **Shopping list**: click **Shop** in the profit panel to add the recipe (times the craft count next to
   Create; right-click takes it off). At the Auction House a panel beside it lists every reagent the list needs,
   how many you already have (bags, bank, and AH purchases still in the mail), and what the rest costs. **Search all** shows every reagent you

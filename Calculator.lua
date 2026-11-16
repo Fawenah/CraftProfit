@@ -281,6 +281,41 @@ function Calc:PickNet(eco, basis)
 	return nil
 end
 
+-- Separate estimate: regular economics and intermediate reagent costs keep their normal yield.
+-- Current clients return ProfessionInfo; older clients expose a skill-line tuple instead.
+-- Check the parent too, since the recipe's own skill line can be an expansion variant.
+function Calc:IsCookingRecipe(recipeID)
+	local api = C_TradeSkillUI
+	if not api or not recipeID then return false end
+	if type(api.GetProfessionInfoByRecipeID) == "function" then
+		local ok, info = pcall(api.GetProfessionInfoByRecipeID, recipeID)
+		if ok and type(info) == "table" then
+			local cooking = (Enum and Enum.Profession and Enum.Profession.Cooking) or 5
+			if info.profession ~= nil then return info.profession == cooking end
+			if info.professionID or info.parentProfessionID then
+				return info.professionID == 185 or info.parentProfessionID == 185
+			end
+		end
+	end
+	if type(api.GetTradeSkillLineForRecipe) == "function" then
+		local ok, line, _, parent = pcall(api.GetTradeSkillLineForRecipe, recipeID)
+		return ok and (line == 185 or parent == 185)
+	end
+	return false
+end
+
+function Calc:GetMasterChefNet(eco, basis)
+	local rank = math.max(0, math.min(5, math.floor(tonumber(CP.settings.masterChefRank) or 0)))
+	if rank == 0 or not eco or not eco.recipeID then return nil end
+	if not self:IsCookingRecipe(eco.recipeID) then return nil end
+	local net, _, kind = self:PickNet(eco, basis)
+	if net == nil then return nil end
+	local unit = kind == "vendor" and eco.vendorUnit or eco.saleUnit
+	if unit == nil then return nil end
+	local cut = kind == "ah" and (CP.settings.ahCut or 0) or 0
+	return net + unit * (rank / 10) * (1 - cut)
+end
+
 function Calc:Compute(recipeID, depth)
 	computing[recipeID] = true
 	local ok, eco = pcall(self.ComputeInternal, self, recipeID, depth or 0)

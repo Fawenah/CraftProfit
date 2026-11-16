@@ -64,6 +64,19 @@ function UI:GetNet(recipeID)
 	return (self:DisplayNet(self:GetEco(recipeID)))
 end
 
+function UI:MasterChefNet(eco, basis)
+	if self.override then return nil end
+	return CP.Calc:GetMasterChefNet(eco, basis)
+end
+
+-- Color each value independently: an ordinary loss can become an expected profit.
+function UI:MasterChefSuffix(eco, basis)
+	local net = self:MasterChefNet(eco, basis)
+	if net == nil then return "" end
+	local money = CP:FormatMoney(net, { sign = true })
+	return " (" .. CP:Color(net >= 0 and C.profit or C.loss, money) .. ")"
+end
+
 -- Reagent unit price for the slot lines; an override can supply its own (e.g. pricing self-crafted
 -- intermediates whenever that is cheaper).
 function UI:ReagentCost(itemID)
@@ -115,7 +128,7 @@ end
 
 local function RowTagText(eco)
 	local net, margin = UI:DisplayNet(eco)
-	return UI:TagText(net, margin)
+	return UI:TagText(net, margin) .. UI:MasterChefSuffix(eco)
 end
 
 function UI:UpdateRow(row, node)
@@ -131,8 +144,11 @@ function UI:UpdateRow(row, node)
 
 	local eco = self:GetEco(info.recipeID)
 	local tagWidth = TAG_WIDTH[CP.settings.rowTag or "profit"] or TAG_WIDTH.profit
-	row.cpProfit:SetWidth(tagWidth)
 	row.cpProfit:SetText(RowTagText(eco))
+	if self:MasterChefNet(eco) ~= nil then
+		tagWidth = math.max(tagWidth, row.cpProfit:GetStringWidth() + 2)
+	end
+	row.cpProfit:SetWidth(tagWidth)
 	row.cpProfit:Show()
 
 	row.cpProfit:ClearAllPoints()
@@ -962,6 +978,17 @@ local function CreatePanel(form)
 		if eco.quantity and eco.quantity ~= 1 then
 			GameTooltip:AddLine(string.format("Output per craft: %g", eco.quantity), 1, 1, 1)
 		end
+		if UI:MasterChefNet(eco) ~= nil then
+			GameTooltip:AddLine(string.format("Master Chef: %d/5 (%d%% chance of one extra item). Parentheses show estimated net profit per craft.",
+				CP.settings.masterChefRank, CP.settings.masterChefRank * 10), 1, 1, 1, true)
+			for _, basis in ipairs({ "ah", "vendor" }) do
+				local expected = UI:MasterChefNet(eco, basis)
+				if expected then
+					GameTooltip:AddDoubleLine(basis == "vendor" and "Master Chef vendor net" or "Master Chef AH net",
+						CP:FormatMoney(expected, { sign = true }), 0.8, 0.8, 0.8, 1, 1, 1)
+				end
+			end
+		end
 		if eco.cut then
 			GameTooltip:AddLine(string.format("AH cut (%d%%): %s", math.floor((CP.settings.ahCut or 0) * 100 + 0.5),
 				CP:FormatMoney(eco.cut)), 1, 1, 1)
@@ -1163,7 +1190,7 @@ function UI:UpdateDetail(form, recipeInfo)
 		p.SaleLabel:SetText(CP:Color(C.label, "Vendor sell price" .. qtyText))
 		p.Sale:SetText(eco.vendorSale and Body(CP:FormatMoney(eco.vendorSale)) or Gray("\226\128\148"))
 		p.AltLabel:SetText(CP:Color(C.label, "Auction House net"))
-		p.Alt:SetText(Signed(eco.net))
+		p.Alt:SetText(Signed(eco.net) .. UI:MasterChefSuffix(eco, "ah"))
 	else
 		p.SaleLabel:SetText(CP:Color(C.label, "Expected sale price" .. qtyText))
 		p.Sale:SetText(eco.sale and Body(CP:FormatMoney(eco.sale)) or Gray("\226\128\148"))
@@ -1171,7 +1198,7 @@ function UI:UpdateDetail(form, recipeInfo)
 		if eco.outputItemID and not eco.vendorUnit and not eco.vendorPending then
 			p.Alt:SetText(Gray("vendors don't buy it"))
 		else
-			p.Alt:SetText(Signed(eco.vendorNet))
+			p.Alt:SetText(Signed(eco.vendorNet) .. UI:MasterChefSuffix(eco, "vendor"))
 		end
 	end
 	p.Sold:SetText(eco.soldPerDay and Body(string.format("%.1f", eco.soldPerDay)) or Gray("\226\128\148"))
@@ -1180,7 +1207,7 @@ function UI:UpdateDetail(form, recipeInfo)
 		local hex = net >= 0 and C.profit or C.loss
 		local pct = CP:FormatMargin(margin)
 		local marginText = pct and ("  (" .. pct .. ")") or ""
-		p.Net:SetText(CP:Color(hex, CP:FormatMoney(net, { sign = true }) .. marginText))
+		p.Net:SetText(CP:Color(hex, CP:FormatMoney(net, { sign = true })) .. UI:MasterChefSuffix(eco) .. CP:Color(hex, marginText))
 	elseif not eco.outputItemID then
 		p.Net:SetText(Gray("no sellable output"))
 	elseif vendorLead and not eco.vendorUnit and not eco.vendorPending then
@@ -1236,11 +1263,20 @@ end
 
 local blizzardSort -- Blizzard's comparator for category nodes (SortCategoryData), captured from the list
 
+function UI:GetSortNet(recipeID)
+	local eco = self:GetEco(recipeID)
+	if CP.settings.sortByProfitWithMasterChef then
+		local expected = self:MasterChefNet(eco)
+		if expected ~= nil then return expected end
+	end
+	return (self:DisplayNet(eco))
+end
+
 local function ProfitComparator(lhs, rhs)
 	local a, b = NodeData(lhs), NodeData(rhs)
 	local ar, br = a and a.recipeInfo, b and b.recipeInfo
 	if ar and br and not a.categoryInfo and not b.categoryInfo and (a.order or 0) == (b.order or 0) then
-		local pa, pb = UI:GetNet(ar.recipeID), UI:GetNet(br.recipeID)
+		local pa, pb = UI:GetSortNet(ar.recipeID), UI:GetSortNet(br.recipeID)
 		if pa ~= pb then
 			if pa == nil then return false end
 			if pb == nil then return true end
@@ -1258,7 +1294,7 @@ end
 -- Applies (or removes) the profit order on a recipe list data provider. Returns true when it re-sorted.
 function UI:ApplySort(dataProvider)
 	if not dataProvider or type(dataProvider.EnumerateEntireRange) ~= "function" then return false end
-	local want = CP.settings.sortByProfit and true or false
+	local want = (CP.settings.sortByProfit or CP.settings.sortByProfitWithMasterChef) and true or false
 	local changed = false
 	local ok, err = pcall(function()
 		local nodes = {}
@@ -1299,10 +1335,27 @@ end
 function UI:SetSortByProfit(enabled)
 	CP.settings.sortByProfit = enabled and true or false
 	CP.touched.sortByProfit = true -- keep the choice if a late-loaded database is adopted
+	if enabled then
+		CP.settings.sortByProfitWithMasterChef = false
+		CP.touched.sortByProfitWithMasterChef = true
+	end
 	self:ResortList()
 	local form = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
 	if form and form.cpPanel then form.cpPanel.SortCheck:SetChecked(CP.settings.sortByProfit) end
 	CP:Fire("SORT_CHANGED", CP.settings.sortByProfit)
+end
+
+function UI:SetSortByProfitWithMasterChef(enabled)
+	CP.settings.sortByProfitWithMasterChef = enabled and true or false
+	CP.touched.sortByProfitWithMasterChef = true
+	if enabled then
+		CP.settings.sortByProfit = false
+		CP.touched.sortByProfit = true
+	end
+	self:ResortList()
+	local form = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+	if form and form.cpPanel then form.cpPanel.SortCheck:SetChecked(CP.settings.sortByProfit) end
+	CP:Fire("SORT_CHANGED", CP.settings.sortByProfitWithMasterChef)
 end
 
 ---------------------------------------------------------------------------
@@ -1347,7 +1400,10 @@ local function RestoreHidden(dataProvider)
 end
 
 local function FilteredOut(data)
-	local net = UI:GetNet(data.recipeInfo.recipeID)
+	local eco = UI:GetEco(data.recipeInfo.recipeID)
+	local net
+	if CP.settings.profitableWithMasterChef then net = UI:MasterChefNet(eco) end
+	if net == nil then net = UI:DisplayNet(eco) end
 	return net == nil or net <= 0
 end
 
@@ -1389,7 +1445,7 @@ end
 -- Applies (or removes) the filter on a recipe list data provider. Returns true when the visible rows changed.
 function UI:ApplyFilter(dataProvider)
 	if not dataProvider then return false end
-	local want = CP.settings.profitableOnly and true or false
+	local want = (CP.settings.profitableOnly or CP.settings.profitableWithMasterChef) and true or false
 	if not want and hiddenFor ~= dataProvider then return false end
 	if type(dataProvider.GetRootNode) ~= "function" then return false end
 	local changed = false
@@ -1451,8 +1507,23 @@ end
 function UI:SetProfitableOnly(enabled)
 	CP.settings.profitableOnly = enabled and true or false
 	CP.touched.profitableOnly = true -- keep the choice if a late-loaded database is adopted
+	if enabled then
+		CP.settings.profitableWithMasterChef = false
+		CP.touched.profitableWithMasterChef = true
+	end
 	self:RefilterList()
 	CP:Fire("FILTER_CHANGED", CP.settings.profitableOnly)
+end
+
+function UI:SetProfitableWithMasterChef(enabled)
+	CP.settings.profitableWithMasterChef = enabled and true or false
+	CP.touched.profitableWithMasterChef = true
+	if enabled then
+		CP.settings.profitableOnly = false
+		CP.touched.profitableOnly = true
+	end
+	self:RefilterList()
+	CP:Fire("FILTER_CHANGED", CP.settings.profitableWithMasterChef)
 end
 
 ---------------------------------------------------------------------------
@@ -1477,7 +1548,7 @@ function UI:RefreshAll()
 		end)
 		-- prices changed: re-filter (hidden rows come back when they no longer lose), then re-sort
 		if type(list.ScrollBox.GetDataProvider) == "function" then
-			if not self:RefilterList() and CP.settings.sortByProfit then
+			if not self:RefilterList() and (CP.settings.sortByProfit or CP.settings.sortByProfitWithMasterChef) then
 				self:ApplySort(list.ScrollBox:GetDataProvider())
 			end
 		end
@@ -1540,9 +1611,15 @@ function UI:Setup()
 			rootDescription:CreateCheckbox("Sort by profit",
 				function() return CP.settings.sortByProfit end,
 				function() UI:SetSortByProfit(not CP.settings.sortByProfit) end)
+			rootDescription:CreateCheckbox("Sort by Profit with Master Chef",
+				function() return CP.settings.sortByProfitWithMasterChef end,
+				function() UI:SetSortByProfitWithMasterChef(not CP.settings.sortByProfitWithMasterChef) end)
 			rootDescription:CreateCheckbox("Profitable only",
 				function() return CP.settings.profitableOnly end,
 				function() UI:SetProfitableOnly(not CP.settings.profitableOnly) end)
+			rootDescription:CreateCheckbox("Profitable with Master Chef",
+				function() return CP.settings.profitableWithMasterChef end,
+				function() UI:SetProfitableWithMasterChef(not CP.settings.profitableWithMasterChef) end)
 			rootDescription:CreateCheckbox("Vendor net",
 				function() return CP.settings.netBasis == "vendor" end,
 				function() CP:SetSetting("netBasis", CP.settings.netBasis == "vendor" and "ah" or "vendor") end)

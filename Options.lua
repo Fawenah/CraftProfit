@@ -62,6 +62,15 @@ function Options:Setup()
 		end)
 		Settings.CreateSlider(category, cut, sliderOptions, "Percentage the Auction House keeps from a sale. Retail uses 5%.")
 
+		local chef = Proxy(category, "masterChefRank", Settings.VarType.Number, "Master Chef rank (Cooking)", CP.defaults.masterChefRank)
+		Settings.CreateDropdown(category, chef, function()
+			local container = Settings.CreateControlTextContainer()
+			for rank = 0, 5 do
+				container:Add(rank, string.format("%d/5 (%d%% chance)", rank, rank * 10))
+			end
+			return container:GetData()
+		end, "Set your Master Chef Legacy Talent rank manually. Each point gives Cooking a 10% chance to create one extra item, regardless of the recipe's normal output. Expected profit appears in parentheses; 0 hides it.")
+
 		-- Toggles
 		local rows = Proxy(category, "showRowTags", Settings.VarType.Boolean, "Profit tags in the recipe list", CP.defaults.showRowTags)
 		Settings.CreateCheckbox(category, rows, "Show a profit tag on every recipe row.")
@@ -104,9 +113,17 @@ function Options:Setup()
 			function(value) CP.UI:SetSortByProfit(value) end)
 		Settings.CreateCheckbox(category, sort, "Within each category, list the most profitable recipes first.")
 
+		local chefSort = Proxy(category, "sortByProfitWithMasterChef", Settings.VarType.Boolean, "Sort by Profit with Master Chef", CP.defaults.sortByProfitWithMasterChef,
+			function(value) CP.UI:SetSortByProfitWithMasterChef(value) end)
+		Settings.CreateCheckbox(category, chefSort, "Within each category, sort by expected profit including Master Chef for Cooking. Uses regular profit for other professions or rank 0. Replaces Sort by profit.")
+
 		local profitable = Proxy(category, "profitableOnly", Settings.VarType.Boolean, "Only show profitable crafts", CP.defaults.profitableOnly,
 			function(value) CP.UI:SetProfitableOnly(value) end)
 		Settings.CreateCheckbox(category, profitable, "Show only recipes that make a profit: hides losses, break-even and unknown profit (missing prices).")
+
+		local chefProfit = Proxy(category, "profitableWithMasterChef", Settings.VarType.Boolean, "Profitable with Master Chef", CP.defaults.profitableWithMasterChef,
+			function(value) CP.UI:SetProfitableWithMasterChef(value) end)
+		Settings.CreateCheckbox(category, chefProfit, "Filter by expected profit including Master Chef for Cooking. Uses regular profit for other professions or rank 0. Replaces Profitable only.")
 
 		local craft = Proxy(category, "craftIntermediates", Settings.VarType.Boolean, "Craft reagents I can make", CP.defaults.craftIntermediates)
 		Settings.CreateCheckbox(category, craft, "Price reagents you have a learned recipe for (e.g. Bolt of Woolen Cloth) at their own craft cost instead of the auction price. Open each profession once per session so its recipes are known.")
