@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.5
+
+- Fixed: prices and price history are now kept per ruleset and per faction. Before, a scan on your Alliance
+  character also showed on your Horde character of the same ruleset (and the other way round). Prices you
+  already have are kept: each character's old prices go to its ruleset and faction the first time you log in
+  with it. Scan once on your other faction to fill its prices.
+- Fixed: characters of the same ruleset and faction now always share prices. The game gives some characters a
+  different internal server name, and CraftProfit used to keep a separate set of prices for each name.
+  `/cf status` shows which set a character uses, for example `Normal-Horde`.
+
 ## 0.5.4
 
 - Fixed: a Lua error (`bad argument #1 to 'UnitPlayerControlled'`) when pressing or releasing Shift over a
