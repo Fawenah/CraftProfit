@@ -188,6 +188,7 @@ end
 local function ShiftDown() return type(IsShiftKeyDown) == "function" and IsShiftKeyDown() and true or false end
 
 function Tooltip:AddLines(tooltip, itemID, data)
+	if tooltip == GameTooltip then self.stackShown = nil end -- nothing below may leave an older stack behind
 	if not (CP.settings and CP.settings.tooltip) then return end
 	if self:IsUnsellable(itemID, tooltip, data) then return end
 	local stack = self:StackCount(tooltip, data, itemID)
@@ -217,8 +218,31 @@ local function ItemIDFromTooltip(tooltip, data)
 	return nil
 end
 
+-- True only when the client says the tooltip holds an item right now. Unknown counts as "no".
+function Tooltip:ShowsItem(tooltip)
+	if type(tooltip.GetPrimaryTooltipData) == "function" and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
+		local ok, isItem = pcall(function()
+			local data = tooltip:GetPrimaryTooltipData()
+			return type(data) == "table" and data.type == Enum.TooltipDataType.Item
+		end)
+		return ok and isItem == true
+	end
+	if type(tooltip.GetItem) == "function" then
+		local ok, _, link = pcall(tooltip.GetItem, tooltip)
+		return ok and type(link) == "string" and link:find("item:", 1, true) ~= nil
+	end
+	return false
+end
+
 function Tooltip:Install()
 	if self.installed then return end
+	-- the stack belongs to the tooltip's current contents: forget it when they are cleared (the tooltip moves
+	-- on to a unit, a spell, another item) or the tooltip hides
+	if GameTooltip and type(GameTooltip.HookScript) == "function" then
+		local forget = function() Tooltip.stackShown = nil end
+		pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipCleared", forget)
+		pcall(GameTooltip.HookScript, GameTooltip, "OnHide", forget)
+	end
 	if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType and Enum.TooltipDataType.Item then
 		local ok = pcall(TooltipDataProcessor.AddTooltipPostCall, Enum.TooltipDataType.Item, function(tooltip, data)
 			if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
@@ -245,7 +269,15 @@ end
 -- Pressing or releasing Shift over a stack re-draws the tooltip with per-item or stack totals.
 function Tooltip:OnModifier(key)
 	if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
+	if not (CP.settings and CP.settings.tooltip) then return end
 	if not (self.stackShown and GameTooltip and GameTooltip:IsShown()) then return end
+	-- Re-drawing anything but an item from addon code is an error on this client (unit tooltips read secret
+	-- values), so the tooltip must hold an item now, whatever it held when the stack was noted.
+	if not self:ShowsItem(GameTooltip) then
+		self.stackShown = nil
+		return
+	end
+	self.lastRefresh = GetTime and GetTime() or nil -- Blocked.lua reports how long before a blocked action this ran
 	if type(GameTooltip.RefreshData) == "function" then
 		pcall(GameTooltip.RefreshData, GameTooltip)
 		return

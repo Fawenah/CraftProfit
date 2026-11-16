@@ -12,6 +12,33 @@
 - Added **Profitable with Master Chef** to the Filter menu and options as an alternative to
   **Profitable only**. Rank 0 hides the estimate and uses regular profit for filtering.
 
+## 0.5.6
+
+- Fixed: the CraftProfit Scan button in the Auction House sat on top of AuctionMaster's "Full Scan" button and
+  its status text. When another addon has a button right of the money display, CraftProfit's button now goes
+  to the right of it.
+
+## 0.5.5
+
+- Fixed: prices and price history are now kept per ruleset and per faction. Before, a scan on your Alliance
+  character also showed on your Horde character of the same ruleset (and the other way round). Prices you
+  already have are kept: each character's old prices go to its ruleset and faction the first time you log in
+  with it. Scan once on your other faction to fill its prices.
+- Fixed: characters of the same ruleset and faction now always share prices. The game gives some characters a
+  different internal server name, and CraftProfit used to keep a separate set of prices for each name.
+  `/cf status` shows which set a character uses, for example `Normal-Horde`.
+
+## 0.5.4
+
+- Fixed: a Lua error (`bad argument #1 to 'UnitPlayerControlled'`) when pressing or releasing Shift over a
+  player or NPC after hovering a stack in your bags. Shift now re-draws the tooltip only while it shows an
+  item, and the remembered stack is dropped as soon as the tooltip changes or hides.
+- Recipes that make no item (most enchants) no longer get a "—" tag in the recipe list, so their names are
+  not cut short for it.
+- New: when the game blocks an action and names CraftProfit (the "blocked from an action only available to the
+  Blizzard UI" popup), CraftProfit says so in chat and notes what was on screen. `/cf blocked` prints the
+  notes; please include them when you report the popup.
+
 ## 0.5.3
 
 - Fixed: **Sold per day** was blank when the price source was Auctionator (for example on "auto" with

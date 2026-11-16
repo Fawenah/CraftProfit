@@ -210,8 +210,59 @@ function CP:GetRealmKey()
 	return name
 end
 
+-- "Alliance" / "Horde" (the client's own, unlocalized name), nil while the client does not say yet.
+function CP:GetFaction()
+	local ok, f = pcall(function() return UnitFactionGroup and UnitFactionGroup("player") end)
+	if ok and type(f) == "string" and f ~= "" then return f end
+	return nil
+end
+
+-- The ruleset the character plays on, from the client's game rules: "Hardcore", "RPPvP", "PvP", "RP" or
+-- "Normal". nil when the client has no game rules API or does not know these rules (the key then uses the
+-- realm name instead).
+function CP:GetRuleset()
+	local R = Enum and Enum.GameRule
+	local active = C_GameRules and C_GameRules.IsGameRuleActive
+	if not (R and active) then return nil end
+	if R.HardcoreRuleset == nil and R.PvPRuleset == nil and R.RPRuleset == nil then return nil end
+	local function On(rule)
+		if rule == nil then return false end
+		local ok, v = pcall(active, rule)
+		return ok and v and true or false
+	end
+	if On(R.HardcoreRuleset) then return "Hardcore" end
+	local pvp, rp = On(R.PvPRuleset), On(R.RPRuleset)
+	if pvp and rp then return "RPPvP" end
+	if pvp then return "PvP" end
+	if rp then return "RP" end
+	return "Normal"
+end
+
+-- Key of the price bucket: ruleset and faction ("Normal-Horde"). The realm name is not part of it: the client
+-- reports an internal server name ("CAMWOWEU4Realm4PvP", "CAMWOWEU5Realm4PvP") that differs between characters
+-- of one ruleset, which share an Auction House (2026-11-16). Factions do not share one, so prices scanned on
+-- one must not show on the other. Without a ruleset from the client the realm name stands in
+-- ("CAMWOWEU5Realm4PvP-Horde"). Until the client names the faction (early at login) this is the plain realm
+-- key; whatever lands in that bucket is merged into the real one by GetRealmDB. The first complete answer is
+-- kept so the key cannot change within a session.
+function CP:GetMarketKey()
+	if self.marketKey then return self.marketKey end
+	local realm, faction = self:GetRealmKey(), self:GetFaction()
+	if realm == "Unknown" or not faction then return realm end
+	self.marketKey = (self:GetRuleset() or realm) .. "-" .. faction
+	return self.marketKey
+end
+
 function CP:GetRealmDB()
-	local key = self:GetRealmKey()
+	local key = self:GetMarketKey()
+	-- Data saved before buckets were per ruleset and faction sits under the character's plain realm key, as does
+	-- anything noted this session before the faction was known. It is merged into the first bucket that asks.
+	local plain = self:GetRealmKey()
+	if key ~= plain and self.db.realms[plain] then
+		local old = self.db.realms[plain]
+		self.db.realms[plain] = nil
+		if self.db.realms[key] then self:MergeRealm(self.db.realms[key], old) else self.db.realms[key] = old end
+	end
 	local realm = self.db.realms[key]
 	if not realm then
 		realm = { prices = {}, history = {}, lastScan = 0 }
@@ -475,7 +526,7 @@ function CP:PackDB(db)
 	local now = time()
 	local keep = self.touchedItems
 	local out = { packed = PACK_VERSION, packedAt = now, version = db.version, settings = db.settings, realms = {}, learned = {},
-		shareImported = db.shareImported, shopping = db.shopping, shoppingMail = db.shoppingMail }
+		shareImported = db.shareImported, shopping = db.shopping, shoppingMail = db.shoppingMail, blocked = db.blocked }
 	local v = {}
 	for id, price in pairs(db.vendor or {}) do v[#v + 1] = Enc(id) .. "." .. Enc(price) end
 	out.vendor = Chunks(v)
@@ -558,7 +609,7 @@ function CP:UnpackDB(p)
 	if not self:IsPacked(p) then return p end
 	local base = p.packedAt or time()
 	local db = { version = p.version, settings = p.settings or {}, vendor = {}, learned = {}, recipeCache = {}, realms = {},
-		shareImported = p.shareImported, shopping = p.shopping, shoppingMail = p.shoppingMail }
+		shareImported = p.shareImported, shopping = p.shopping, shoppingMail = p.shoppingMail, blocked = p.blocked }
 	Each(p.vendor, function(e)
 		local id, price = e:match("^(%w+)%.(%w+)$")
 		if id then db.vendor[Dec(id)] = Dec(price) end
@@ -686,6 +737,39 @@ end
 
 -- CraftProfit's own merge: prices/ladders/depth values newest wins, daily price history by day, histories and
 -- purchases append, the rest unions.
+-- Merges one price bucket into another: per item the newer price, ladder and depth value win, lists are joined.
+function CP:MergeRealm(into, realm)
+	local M = CP.Merge
+	into.prices = into.prices or {}
+	for itemID, rec in pairs(realm.prices or {}) do
+		local old = into.prices[itemID]
+		if not old or (rec[3] or 0) >= (old[3] or 0) then into.prices[itemID] = rec end
+	end
+	into.history = into.history or {}
+	for itemID, samples in pairs(realm.history or {}) do
+		into.history[itemID] = M.Append(into.history[itemID] or {}, samples, 30)
+	end
+	into.ladders = into.ladders or {}
+	for itemID, ladder in pairs(realm.ladders or {}) do
+		local old = into.ladders[itemID]
+		if not old or (ladder.t or 0) >= (old.t or 0) then into.ladders[itemID] = ladder end
+	end
+	into.mv = into.mv or {}
+	for itemID, d in pairs(realm.mv or {}) do
+		local old = into.mv[itemID]
+		if not old or (d[3] or 0) >= (old[3] or 0) then into.mv[itemID] = d end
+	end
+	into.daily = into.daily or {}
+	for itemID, list in pairs(realm.daily or {}) do
+		into.daily[itemID] = M.Days(into.daily[itemID], list, PACK_DAILY_DAYS)
+	end
+	into.purchases = into.purchases or {}
+	for itemID, list in pairs(realm.purchases or {}) do
+		into.purchases[itemID] = M.Append(into.purchases[itemID] or {}, list, 20)
+	end
+	into.lastScan = math.max(into.lastScan or 0, realm.lastScan or 0)
+end
+
 local function AdoptCraftProfitDB(loaded, provisional, reason)
 	local M = CP.Merge
 	if CP:IsPacked(loaded) then
@@ -708,34 +792,7 @@ local function AdoptCraftProfitDB(loaded, provisional, reason)
 		if not into then
 			loaded.realms[key] = realm
 		else
-			into.prices = into.prices or {}
-			for itemID, rec in pairs(realm.prices or {}) do
-				local old = into.prices[itemID]
-				if not old or (rec[3] or 0) >= (old[3] or 0) then into.prices[itemID] = rec end
-			end
-			into.history = into.history or {}
-			for itemID, samples in pairs(realm.history or {}) do
-				into.history[itemID] = M.Append(into.history[itemID] or {}, samples, 30)
-			end
-			into.ladders = into.ladders or {}
-			for itemID, ladder in pairs(realm.ladders or {}) do
-				local old = into.ladders[itemID]
-				if not old or (ladder.t or 0) >= (old.t or 0) then into.ladders[itemID] = ladder end
-			end
-			into.mv = into.mv or {}
-			for itemID, d in pairs(realm.mv or {}) do
-				local old = into.mv[itemID]
-				if not old or (d[3] or 0) >= (old[3] or 0) then into.mv[itemID] = d end
-			end
-			into.daily = into.daily or {}
-			for itemID, list in pairs(realm.daily or {}) do
-				into.daily[itemID] = M.Days(into.daily[itemID], list, PACK_DAILY_DAYS)
-			end
-			into.purchases = into.purchases or {}
-			for itemID, list in pairs(realm.purchases or {}) do
-				into.purchases[itemID] = M.Append(into.purchases[itemID] or {}, list, 20)
-			end
-			into.lastScan = math.max(into.lastScan or 0, realm.lastScan or 0)
+			CP:MergeRealm(into, realm)
 		end
 	end
 	loaded.version = loaded.version or provisional.version
@@ -744,6 +801,10 @@ local function AdoptCraftProfitDB(loaded, provisional, reason)
 	loaded.shopping = loaded.shopping or {}
 	for recipeID, e in pairs(provisional.shopping or {}) do
 		if not loaded.shopping[recipeID] then loaded.shopping[recipeID] = e end
+	end
+	-- blocked-action records (Blocked.lua): the ones noted this session follow the saved ones
+	if provisional.blocked and provisional.blocked ~= loaded.blocked then
+		loaded.blocked = M.Append(loaded.blocked or {}, provisional.blocked, 20)
 	end
 	loaded.shoppingMail = loaded.shoppingMail or {}
 	for char, items in pairs(provisional.shoppingMail or {}) do
@@ -760,11 +821,11 @@ local function AdoptCraftProfitDB(loaded, provisional, reason)
 		if CP.Calc.RestoreCrafts then CP.Calc:RestoreCrafts() end
 	end
 	local n = 0
-	for _ in pairs((loaded.realms[CP:GetRealmKey()] or {}).prices or {}) do n = n + 1 end
+	for _ in pairs(CP:GetRealmDB().prices) do n = n + 1 end
 	if tostring(reason):find("backup", 1, true) then
-		CP:Print("the client did not hand back CraftProfit's saved data; restored it from a backup copy: %d prices on %s.", n, CP:GetRealmKey())
+		CP:Print("the client did not hand back CraftProfit's saved data; restored it from a backup copy: %d prices on %s.", n, CP:GetMarketKey())
 	elseif reason == "console vault" then
-		CP:Print("saved data loaded from the console vault: %d prices on %s.", n, CP:GetRealmKey())
+		CP:Print("saved data loaded from the console vault: %d prices on %s.", n, CP:GetMarketKey())
 	else
 		CP:Print("saved data arrived after login (%s) and was merged with this session: %d prices on %s.", tostring(reason), n, CP:GetRealmKey())
 	end
@@ -895,7 +956,7 @@ end
 ---------------------------------------------------------------------------
 
 local function PrintStatus()
-	CP:Print("v%s on %s (interface %s)", CP.version, CP:GetRealmKey(),
+	CP:Print("v%s on %s (interface %s)", CP.version, CP:GetMarketKey(),
 		tostring(select(4, GetBuildInfo())))
 	local li = CP.loadInfo
 	if li then
@@ -904,7 +965,7 @@ local function PrintStatus()
 		table.sort(parts)
 		CP:Print("Loaded from disk at login: %s (%d prices, %d ladders; realms: %s). Current realm key: %s. Since: %s.",
 			li.hadDB and ("saved data found in the " .. tostring(li.from)) or "NO SAVED DATA (fresh database)", li.prices, li.ladders,
-			#parts > 0 and table.concat(parts, ", ") or "none", CP:GetRealmKey(), CP:SavedVariableStatus("CraftProfitDB"))
+			#parts > 0 and table.concat(parts, ", ") or "none", CP:GetMarketKey(), CP:SavedVariableStatus("CraftProfitDB"))
 	end
 	local active, reason = CP.Sources:Resolve()
 	CP:Print("Setting: %s | active source: %s", CP.settings.source,
@@ -964,6 +1025,7 @@ local function PrintHelp()
 	CP:Print("  /cf tooltip - toggle the CraftProfit block in item tooltips")
 	CP:Print("  /cf shop [clear] - show (or empty) the AH shopping list; add recipes with Shop in the profit panel")
 	CP:Print("  /cf share [import] - state of the old cross-character cache (import: merge what it still holds again)")
+	CP:Print("  /cf blocked [clear] - what was on screen when the game blocked an action and named CraftProfit")
 	CP:Print("  /cf debug - toggle debug output")
 	CP:Print("  /cf reset confirm - wipe scan data and settings")
 end
@@ -1083,6 +1145,8 @@ local function HandleSlash(input)
 	elseif cmd == "tooltip" then
 		CP:SetSetting("tooltip", not CP.settings.tooltip)
 		CP:Print("item tooltip block %s", CP.settings.tooltip and "on" or "off")
+	elseif cmd == "blocked" and CP.Blocked then
+		CP.Blocked:Command(rest)
 	elseif cmd == "debug" then
 		CP:SetSetting("debug", not CP.settings.debug)
 		CP:Print("debug %s", CP.settings.debug and "on" or "off")
