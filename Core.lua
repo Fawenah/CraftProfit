@@ -472,7 +472,7 @@ function CP:PackDB(db)
 	local now = time()
 	local keep = self.touchedItems
 	local out = { packed = PACK_VERSION, packedAt = now, version = db.version, settings = db.settings, realms = {}, learned = {},
-		shareImported = db.shareImported, shopping = db.shopping, shoppingMail = db.shoppingMail }
+		shareImported = db.shareImported, shopping = db.shopping, shoppingMail = db.shoppingMail, blocked = db.blocked }
 	local v = {}
 	for id, price in pairs(db.vendor or {}) do v[#v + 1] = Enc(id) .. "." .. Enc(price) end
 	out.vendor = Chunks(v)
@@ -555,7 +555,7 @@ function CP:UnpackDB(p)
 	if not self:IsPacked(p) then return p end
 	local base = p.packedAt or time()
 	local db = { version = p.version, settings = p.settings or {}, vendor = {}, learned = {}, recipeCache = {}, realms = {},
-		shareImported = p.shareImported, shopping = p.shopping, shoppingMail = p.shoppingMail }
+		shareImported = p.shareImported, shopping = p.shopping, shoppingMail = p.shoppingMail, blocked = p.blocked }
 	Each(p.vendor, function(e)
 		local id, price = e:match("^(%w+)%.(%w+)$")
 		if id then db.vendor[Dec(id)] = Dec(price) end
@@ -741,6 +741,10 @@ local function AdoptCraftProfitDB(loaded, provisional, reason)
 	loaded.shopping = loaded.shopping or {}
 	for recipeID, e in pairs(provisional.shopping or {}) do
 		if not loaded.shopping[recipeID] then loaded.shopping[recipeID] = e end
+	end
+	-- blocked-action records (Blocked.lua): the ones noted this session follow the saved ones
+	if provisional.blocked and provisional.blocked ~= loaded.blocked then
+		loaded.blocked = M.Append(loaded.blocked or {}, provisional.blocked, 20)
 	end
 	loaded.shoppingMail = loaded.shoppingMail or {}
 	for char, items in pairs(provisional.shoppingMail or {}) do
@@ -961,6 +965,7 @@ local function PrintHelp()
 	CP:Print("  /cf tooltip - toggle the CraftProfit block in item tooltips")
 	CP:Print("  /cf shop [clear] - show (or empty) the AH shopping list; add recipes with Shop in the profit panel")
 	CP:Print("  /cf share [import] - state of the old cross-character cache (import: merge what it still holds again)")
+	CP:Print("  /cf blocked [clear] - what was on screen when the game blocked an action and named CraftProfit")
 	CP:Print("  /cf debug - toggle debug output")
 	CP:Print("  /cf reset confirm - wipe scan data and settings")
 end
@@ -1080,6 +1085,8 @@ local function HandleSlash(input)
 	elseif cmd == "tooltip" then
 		CP:SetSetting("tooltip", not CP.settings.tooltip)
 		CP:Print("item tooltip block %s", CP.settings.tooltip and "on" or "off")
+	elseif cmd == "blocked" and CP.Blocked then
+		CP.Blocked:Command(rest)
 	elseif cmd == "debug" then
 		CP:SetSetting("debug", not CP.settings.debug)
 		CP:Print("debug %s", CP.settings.debug and "on" or "off")

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.4
+
+- Fixed: a Lua error (`bad argument #1 to 'UnitPlayerControlled'`) when pressing or releasing Shift over a
+  player or NPC after hovering a stack in your bags. Shift now re-draws the tooltip only while it shows an
+  item, and the remembered stack is dropped as soon as the tooltip changes or hides.
+- Recipes that make no item (most enchants) no longer get a "—" tag in the recipe list, so their names are
+  not cut short for it.
+- New: when the game blocks an action and names CraftProfit (the "blocked from an action only available to the
+  Blizzard UI" popup), CraftProfit says so in chat and notes what was on screen. `/cf blocked` prints the
+  notes; please include them when you report the popup.
+
 ## 0.5.3
 
 - Fixed: **Sold per day** was blank when the price source was Auctionator (for example on "auto" with

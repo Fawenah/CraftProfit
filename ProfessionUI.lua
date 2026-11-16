@@ -130,6 +130,12 @@ function UI:UpdateRow(row, node)
 	end
 
 	local eco = self:GetEco(info.recipeID)
+	-- A recipe that makes no item (most enchants) has nothing to sell, so there is never a profit to show.
+	-- No tag then, and the name keeps the whole row instead of being cut short for an empty dash.
+	if eco and not eco.error and not eco.outputItemID and self:DisplayNet(eco) == nil then
+		row.cpProfit:Hide()
+		return
+	end
 	local tagWidth = TAG_WIDTH[CP.settings.rowTag or "profit"] or TAG_WIDTH.profit
 	row.cpProfit:SetWidth(tagWidth)
 	row.cpProfit:SetText(RowTagText(eco))
