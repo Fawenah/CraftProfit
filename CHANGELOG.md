@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.6
+
+- Fixed: the CraftProfit Scan button in the Auction House sat on top of AuctionMaster's "Full Scan" button and
+  its status text. When another addon has a button right of the money display, CraftProfit's button now goes
+  to the right of it.
+
 ## 0.5.5
 
 - Fixed: prices and price history are now kept per ruleset and per faction. Before, a scan on your Alliance

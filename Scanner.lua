@@ -322,6 +322,43 @@ end
 -- Auction House integration
 ---------------------------------------------------------------------------
 
+-- True when another addon's frame on the Auction House starts right of `anchor` (its LEFT on anchor's RIGHT):
+-- the spot our button would take.
+local function StartsRightOf(child, anchor)
+	local ok, hit = pcall(function()
+		if child.IsForbidden and child:IsForbidden() then return false end
+		if not child:IsShown() or child:GetNumPoints() < 1 then return false end
+		local point, rel, relPoint = child:GetPoint(1)
+		return point == "LEFT" and rel == anchor and relPoint == "RIGHT"
+	end)
+	return ok and hit or false
+end
+
+-- The button goes right of the money display. Other addons put a button of their own there (AuctionMaster's
+-- "Full Scan" and its status text); ours then goes right of theirs instead of on top of it.
+function Scanner:PlaceButton()
+	local b, house = self.button, AuctionHouseFrame
+	if not (b and house) then return end
+	local anchor = house.MoneyFrameBorder
+	b:ClearAllPoints()
+	if not anchor then
+		b:SetPoint("BOTTOMLEFT", house, "BOTTOMLEFT", 200, 4)
+		return
+	end
+	local ok, children = pcall(function() return { house:GetChildren() } end)
+	if ok then
+		for _ = 1, 4 do -- a few addons in a row at most
+			local nextAnchor
+			for _, child in ipairs(children) do
+				if child ~= b and child ~= anchor and StartsRightOf(child, anchor) then nextAnchor = child break end
+			end
+			if not nextAnchor then break end
+			anchor = nextAnchor
+		end
+	end
+	b:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+end
+
 local function CreateScanButton()
 	if Scanner.button or not AuctionHouseFrame then return end
 	if not CP.settings or not CP.settings.scanButton then return end
@@ -329,11 +366,6 @@ local function CreateScanButton()
 	local b = CreateFrame("Button", "CraftProfitScanButton", AuctionHouseFrame, "UIPanelButtonTemplate")
 	b:SetSize(120, 22)
 	b:SetText("CraftProfit Scan")
-	if AuctionHouseFrame.MoneyFrameBorder then
-		b:SetPoint("LEFT", AuctionHouseFrame.MoneyFrameBorder, "RIGHT", 8, 0)
-	else
-		b:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMLEFT", 200, 4)
-	end
 	b:SetScript("OnClick", function()
 		if Scanner.running then
 			Scanner:Finish(true)
@@ -360,11 +392,15 @@ local function CreateScanButton()
 	end)
 	b:SetScript("OnLeave", GameTooltip_Hide)
 	Scanner.button = b
+	Scanner:PlaceButton()
 end
 
 CP:RegisterEvent("AUCTION_HOUSE_SHOW", function()
 	Scanner.ahOpen = true
 	CreateScanButton()
+	-- other addons add their button on this same event, some after us: look again once they all have
+	Scanner:PlaceButton()
+	if C_Timer and C_Timer.After then C_Timer.After(0, function() Scanner:PlaceButton() end) end
 end)
 
 CP:RegisterEvent("AUCTION_HOUSE_CLOSED", function()
